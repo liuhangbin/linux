@@ -75,6 +75,11 @@ void synchronize_net(void);
 void netdev_set_default_ethtool_ops(struct net_device *dev,
 				    const struct ethtool_ops *ops);
 
+void obj_cnt_track(struct net *net, void *loc, void *obj, int type);
+void obj_cnt_dump(struct net *net, void *obj, int type, char *str);
+bool obj_cnt_allowed(struct net *net, int index, char *name, void *obj);
+void obj_cnt_set(struct net *net, int index, char *name, void *obj);
+
 /* Backlog congestion levels */
 #define NET_RX_SUCCESS		0	/* keep 'em coming, baby */
 #define NET_RX_DROP		1	/* packet dropped */

@@ -10,6 +10,10 @@ struct netns_core {
 	struct ctl_table_header	*sysctl_hdr;
 
 	int	sysctl_somaxconn;
+	int	sysctl_obj_cnt_index;
+	char	sysctl_obj_cnt_name[16];
+	int	sysctl_obj_cnt_type;
+	void	*sysctl_obj_cnt_obj;
 
 #ifdef CONFIG_PROC_FS
 	int __percpu *sock_inuse;

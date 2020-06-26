@@ -583,6 +583,15 @@ static struct ctl_table net_core_table[] = {
 	{ }
 };
 
+static int proc_obj_cnt_dump(struct ctl_table *__ctl, int write,
+			     void *buffer, size_t *lenp, loff_t *ppos)
+{
+	if (write)
+		return 0;
+
+	return -EINVAL;
+}
+
 static struct ctl_table netns_core_table[] = {
 	{
 		.procname	= "somaxconn",
@@ -591,6 +600,33 @@ static struct ctl_table netns_core_table[] = {
 		.mode		= 0644,
 		.extra1		= SYSCTL_ZERO,
 		.proc_handler	= proc_dointvec_minmax
+	},
+	{
+		.procname	= "obj_cnt_index",
+		.data		= &init_net.core.sysctl_obj_cnt_index,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec
+	},
+	{
+		.procname	= "obj_cnt_name",
+		.data		= init_net.core.sysctl_obj_cnt_name,
+		.maxlen		= 16,
+		.mode		= 0644,
+		.proc_handler	= proc_dostring
+	},
+	{
+		.procname	= "obj_cnt_type",
+		.data		= &init_net.core.sysctl_obj_cnt_type,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec
+	},
+	{
+		.procname	= "obj_cnt_dump",
+		.maxlen		= sizeof(int),
+		.mode		= 0200,
+		.proc_handler	= proc_obj_cnt_dump
 	},
 	{ }
 };
@@ -619,10 +655,16 @@ static __net_init int sysctl_core_net_init(struct net *net)
 			goto err_dup;
 
 		tbl[0].data = &net->core.sysctl_somaxconn;
+		tbl[1].data = &net->core.sysctl_obj_cnt_index;
+		tbl[2].data = net->core.sysctl_obj_cnt_name;
+		tbl[3].data = &net->core.sysctl_obj_cnt_type;
 
 		/* Don't export any sysctls to unprivileged users */
 		if (net->user_ns != &init_user_ns) {
 			tbl[0].procname = NULL;
+			tbl[1].procname = NULL;
+			tbl[2].procname = NULL;
+			tbl[3].procname = NULL;
 		}
 	}
 

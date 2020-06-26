@@ -236,6 +236,143 @@ static inline void rps_unlock(struct softnet_data *sd)
 #endif
 }
 
+struct obj_cnt {
+	struct hlist_node hlist;
+	void *loc;	/* dump stack address */
+	void *obj;	/* the obj to track */
+	u64 cnt;	/* how many times it's been called */
+	int type;	/* hold or put */
+};
+
+static inline struct hlist_head *obj_cnt_hash(struct net *net, void *loc)
+{
+	long l = (__force long)loc;
+
+	return &net->obj_cnt_head[l & (NETDEV_HASHENTRIES - 1)];
+}
+
+static struct obj_cnt *obj_cnt_lookup(struct net *net, void *loc, void *obj, int type)
+{
+	struct hlist_head *head;
+	struct obj_cnt *oc;
+
+	head = obj_cnt_hash(net, loc);
+	hlist_for_each_entry(oc, head, hlist)
+		if (oc->loc == loc && oc->obj == obj && oc->type == type)
+			return oc;
+
+	return NULL;
+}
+
+static struct obj_cnt *obj_cnt_create(struct net *net, void *loc, void *obj, int type)
+{
+	struct obj_cnt *oc;
+
+	oc = kmalloc(sizeof(*oc), GFP_ATOMIC);
+	if (!oc) {
+		printk("[OC_ERROR] obj_cnt_create: loc: %px, obj: %px, type: %d, net: %px\n",
+		       loc, obj, type, net);
+		return NULL;
+	}
+
+	oc->loc = loc;
+	oc->obj = obj;
+	oc->cnt = 0;
+	oc->type = type;
+	hlist_add_head_rcu(&oc->hlist, obj_cnt_hash(net, loc));
+	printk("[OC_INFO] oc_cnt_create: loc: %px, obj: %px, type: %d, net: %px\n",
+	       loc, obj, type, net);
+
+	dump_stack();
+
+	return oc;
+}
+
+void obj_cnt_track(struct net *net, void *loc, void *obj, int type)
+{
+	struct obj_cnt *oc;
+
+	if (!(net->core.sysctl_obj_cnt_type & type))
+		return;
+
+	spin_lock_bh(&net->obj_cnt_lock);
+	oc = obj_cnt_lookup(net, loc, obj, type);
+	if (!oc)
+		oc = obj_cnt_create(net, loc, obj, type);
+	if (oc)
+		oc->cnt++;
+	spin_unlock_bh(&net->obj_cnt_lock);
+}
+EXPORT_SYMBOL(obj_cnt_track);
+
+void obj_cnt_dump(struct net *net, void *obj, int type, char *str)
+{
+	struct hlist_head *head;
+	struct obj_cnt *oc;
+	int h;
+
+	if (!(net->core.sysctl_obj_cnt_type & type))
+		return;
+
+	printk("[OC_INFO] obj_cnt_dump: %s:\n", str);
+	spin_lock_bh(&net->obj_cnt_lock);
+        for (h = 0; h < NETDEV_HASHENTRIES; h++) {
+                head = &net->obj_cnt_head[h];
+                hlist_for_each_entry(oc, head, hlist) {
+			if (oc->type != type || (obj && oc->obj != obj))
+				continue;
+			printk("[OC_INFO] obj_cnt_dump: loc: %px, obj: %px, cnt: %llu, type: %d, net: %px, caller: %pS\n",
+			       oc->loc, oc->obj, oc->cnt, oc->type, net, oc->loc);
+                }
+        }
+	spin_unlock_bh(&net->obj_cnt_lock);
+}
+EXPORT_SYMBOL(obj_cnt_dump);
+
+bool obj_cnt_allowed(struct net *net, int index, char *name, void *obj)
+{
+	if (index && index == net->core.sysctl_obj_cnt_index)
+		return true;
+
+	if (name && !strncmp(name, net->core.sysctl_obj_cnt_name, strlen(net->core.sysctl_obj_cnt_name)))
+		return true;
+
+	if (obj && obj == net->core.sysctl_obj_cnt_obj)
+		return true;
+
+	return false;
+}
+EXPORT_SYMBOL(obj_cnt_allowed);
+
+void obj_cnt_set(struct net *net, int index, char *name, void *obj)
+{
+	if (index) {
+		if (net->core.sysctl_obj_cnt_index > 0) {
+			printk("[OC_WARN] obj_cnt_set: net->index: %d, index: %d, net: %px\n",
+			       net->core.sysctl_obj_cnt_index, index, net);
+			return;
+		}
+		net->core.sysctl_obj_cnt_index = index;
+	}
+	if (name) {
+		if (strcmp(net->core.sysctl_obj_cnt_name, "")) {
+			printk("[OC_WARN] obj_cnt_set: net->name: %s, name: %s, net: %px\n",
+			       net->core.sysctl_obj_cnt_name, name, net);
+			return;
+		}
+		strncpy(net->core.sysctl_obj_cnt_name, name, min_t(size_t, 16, strlen(name)));
+	}
+	if (obj) {
+		if (net->core.sysctl_obj_cnt_obj) {
+			printk("[OC_WARN] obj_cnt_set: net->obj: %px, obj: %px, net: %px\n",
+			       net->core.sysctl_obj_cnt_obj, obj, net);
+			return;
+		}
+		net->core.sysctl_obj_cnt_obj = obj;
+	}
+}
+EXPORT_SYMBOL(obj_cnt_set);
+
 static struct netdev_name_node *netdev_name_node_alloc(struct net_device *dev,
 						       const char *name)
 {
@@ -10832,6 +10969,8 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 	dev = PTR_ALIGN(p, NETDEV_ALIGN);
 	dev->padded = (char *)dev - (char *)p;
 
+	dev_net_set(dev, &init_net);
+
 #ifdef CONFIG_PCPU_DEV_REFCNT
 	dev->pcpu_refcnt = alloc_percpu(int);
 	if (!dev->pcpu_refcnt)
@@ -10846,8 +10985,6 @@ struct net_device *alloc_netdev_mqs(int sizeof_priv, const char *name,
 
 	dev_mc_init(dev);
 	dev_uc_init(dev);
-
-	dev_net_set(dev, &init_net);
 
 	dev->gso_max_size = GSO_MAX_SIZE;
 	dev->gso_max_segs = GSO_MAX_SEGS;
@@ -11405,10 +11542,18 @@ static int __net_init netdev_init(struct net *net)
 	if (net->dev_index_head == NULL)
 		goto err_idx;
 
+	net->obj_cnt_head = netdev_create_hash();
+	if (net->obj_cnt_head == NULL)
+		goto err_oc;
+
+	spin_lock_init(&net->obj_cnt_lock);
+
 	RAW_INIT_NOTIFIER_HEAD(&net->netdev_chain);
 
 	return 0;
 
+err_oc:
+	kfree(net->dev_index_head);
 err_idx:
 	kfree(net->dev_name_head);
 err_name:
@@ -11498,8 +11643,29 @@ define_netdev_printk_level(netdev_warn, KERN_WARNING);
 define_netdev_printk_level(netdev_notice, KERN_NOTICE);
 define_netdev_printk_level(netdev_info, KERN_INFO);
 
+static void obj_cnt_free(struct net *net)
+{
+	struct hlist_head *head;
+	struct hlist_node *tmp;
+	struct obj_cnt *oc;
+	int h;
+
+	spin_lock_bh(&net->obj_cnt_lock);
+        for (h = 0; h < NETDEV_HASHENTRIES; h++) {
+                head = &net->obj_cnt_head[h];
+                hlist_for_each_entry_safe(oc, tmp, head, hlist) {
+			hlist_del_rcu(&oc->hlist);
+			kfree(oc);
+		}
+        }
+	spin_unlock_bh(&net->obj_cnt_lock);
+
+	kfree(net->obj_cnt_head);
+}
+
 static void __net_exit netdev_exit(struct net *net)
 {
+	obj_cnt_free(net);
 	kfree(net->dev_name_head);
 	kfree(net->dev_index_head);
 	if (net != &init_net)

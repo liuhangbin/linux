@@ -103,6 +103,8 @@ struct net {
 
 	struct hlist_head 	*dev_name_head;
 	struct hlist_head	*dev_index_head;
+	struct hlist_head 	*obj_cnt_head;
+	spinlock_t		obj_cnt_lock;
 	struct raw_notifier_head	netdev_chain;
 
 	/* Note that @hash_mix can be read millions times per second,

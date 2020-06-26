@@ -359,6 +359,10 @@ out_undo:
 static int __net_init net_defaults_init_net(struct net *net)
 {
 	net->core.sysctl_somaxconn = SOMAXCONN;
+	net->core.sysctl_obj_cnt_index = -1;
+	strcpy(net->core.sysctl_obj_cnt_name, "qr-");
+	net->core.sysctl_obj_cnt_type = 0xff;
+	net->core.sysctl_obj_cnt_obj = NULL;
 	return 0;
 }
 
