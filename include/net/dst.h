@@ -220,15 +220,7 @@ dst_metric_locked(const struct dst_entry *dst, int metric)
 	return dst_metric(dst, RTAX_LOCK) & (1 << metric);
 }
 
-static inline void dst_hold(struct dst_entry *dst)
-{
-	/*
-	 * If your kernel compilation stops here, please check
-	 * the placement of __refcnt in struct dst_entry
-	 */
-	BUILD_BUG_ON(offsetof(struct dst_entry, __refcnt) & 63);
-	WARN_ON(atomic_inc_not_zero(&dst->__refcnt) == 0);
-}
+void dst_hold(struct dst_entry *dst);
 
 static inline void dst_use_noref(struct dst_entry *dst, unsigned long time)
 {
@@ -295,10 +287,7 @@ static inline void skb_dst_copy(struct sk_buff *nskb, const struct sk_buff *oskb
  * This helper returns false if it could not safely
  * take a reference on a dst.
  */
-static inline bool dst_hold_safe(struct dst_entry *dst)
-{
-	return atomic_inc_not_zero(&dst->__refcnt);
-}
+bool dst_hold_safe(struct dst_entry *dst);
 
 /**
  * skb_dst_force - makes sure skb dst is refcounted

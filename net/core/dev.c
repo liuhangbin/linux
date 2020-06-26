@@ -10723,6 +10723,8 @@ static void netdev_wait_allrefs(struct net_device *dev)
 			if (obj_cnt_allowed(dev_net(dev), dev->ifindex, dev->name, NULL)) {
 				obj_cnt_dump(dev_net(dev), dev, 1, "dev_hold");
 				obj_cnt_dump(dev_net(dev), dev, 2, "dev_put");
+				obj_cnt_dump(dev_net(dev), NULL, 4, "dst_hold");
+				obj_cnt_dump(dev_net(dev), NULL, 8, "dst_put");
 			}
 		}
 	}

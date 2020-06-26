@@ -27,6 +27,41 @@
 #include <net/dst.h>
 #include <net/dst_metadata.h>
 
+static inline void dst_cnt_track(struct dst_entry *dst, u8 type)
+{
+	struct net_device *dev = dst->dev;
+
+	if (!dev)
+		return;
+
+	if (obj_cnt_allowed(dev_net(dev), dev->ifindex, dev->name, NULL))
+		obj_cnt_track(dev_net(dev), __builtin_return_address(0), dst, type);
+}
+
+void dst_hold(struct dst_entry *dst)
+{
+	/*
+	 * If your kernel compilation stops here, please check
+	 * the placement of __refcnt in struct dst_entry
+	 */
+	BUILD_BUG_ON(offsetof(struct dst_entry, __refcnt) & 63);
+	WARN_ON(atomic_inc_not_zero(&dst->__refcnt) == 0);
+
+	dst_cnt_track(dst, 4);
+}
+EXPORT_SYMBOL(dst_hold);
+
+bool dst_hold_safe(struct dst_entry *dst)
+{
+	if (atomic_inc_not_zero(&dst->__refcnt)) {
+		dst_cnt_track(dst, 4);
+		return true;
+	}
+
+	return false;
+}
+EXPORT_SYMBOL(dst_hold_safe);
+
 int dst_discard_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
 	kfree_skb(skb);
@@ -67,6 +102,7 @@ void dst_init(struct dst_entry *dst, struct dst_ops *ops,
 #endif
 	dst->lwtstate = NULL;
 	atomic_set(&dst->__refcnt, initial_ref);
+	dst_cnt_track(dst, 4);
 	dst->__use = 0;
 	dst->lastuse = jiffies;
 	dst->flags = flags;
@@ -169,6 +205,8 @@ void dst_release(struct dst_entry *dst)
 	if (dst) {
 		int newrefcnt;
 
+		dst_cnt_track(dst, 8);
+
 		newrefcnt = atomic_dec_return(&dst->__refcnt);
 		if (WARN_ONCE(newrefcnt < 0, "dst_release underflow"))
 			net_warn_ratelimited("%s: dst:%p refcnt:%d\n",
@@ -183,6 +221,8 @@ void dst_release_immediate(struct dst_entry *dst)
 {
 	if (dst) {
 		int newrefcnt;
+
+		dst_cnt_track(dst, 8);
 
 		newrefcnt = atomic_dec_return(&dst->__refcnt);
 		if (WARN_ONCE(newrefcnt < 0, "dst_release_immediate underflow"))
