@@ -772,27 +772,13 @@ static inline void xfrm_pols_put(struct xfrm_policy **pols, int npols)
 
 void __xfrm_state_destroy(struct xfrm_state *, bool);
 
-static inline void __xfrm_state_put(struct xfrm_state *x)
-{
-	refcount_dec(&x->refcnt);
-}
+void __xfrm_state_put(struct xfrm_state *x);
 
-static inline void xfrm_state_put(struct xfrm_state *x)
-{
-	if (refcount_dec_and_test(&x->refcnt))
-		__xfrm_state_destroy(x, false);
-}
+void xfrm_state_put(struct xfrm_state *x);
 
-static inline void xfrm_state_put_sync(struct xfrm_state *x)
-{
-	if (refcount_dec_and_test(&x->refcnt))
-		__xfrm_state_destroy(x, true);
-}
+void xfrm_state_put_sync(struct xfrm_state *x);
 
-static inline void xfrm_state_hold(struct xfrm_state *x)
-{
-	refcount_inc(&x->refcnt);
-}
+void xfrm_state_hold(struct xfrm_state *x);
 
 static inline bool addr_match(const void *token1, const void *token2,
 			      unsigned int prefixlen)

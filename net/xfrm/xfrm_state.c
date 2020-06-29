@@ -49,10 +49,52 @@ static struct kmem_cache *xfrm_state_cache __ro_after_init;
 static DECLARE_WORK(xfrm_state_gc_work, xfrm_state_gc_task);
 static HLIST_HEAD(xfrm_state_gc_list);
 
-static inline bool xfrm_state_hold_rcu(struct xfrm_state __rcu *x)
+static inline void xfrm_state_cnt_track(struct xfrm_state *x, u8 type)
 {
-	return refcount_inc_not_zero(&x->refcnt);
+	if (obj_cnt_allowed(xs_net(x), (int)x->id.spi, NULL, NULL))
+		obj_cnt_track(xs_net(x), __builtin_return_address(0), x, type);
 }
+
+void xfrm_state_hold(struct xfrm_state *x)
+{
+	xfrm_state_cnt_track(x, 64);
+	refcount_inc(&x->refcnt);
+}
+EXPORT_SYMBOL(xfrm_state_hold);
+
+bool xfrm_state_hold_rcu(struct xfrm_state __rcu *x)
+{
+	if (refcount_inc_not_zero(&x->refcnt)) {
+		xfrm_state_cnt_track(x, 64);
+		return true;
+	}
+
+	return false;
+}
+EXPORT_SYMBOL(xfrm_state_hold_rcu);
+
+void __xfrm_state_put(struct xfrm_state *x)
+{
+	xfrm_state_cnt_track(x, 128);
+	refcount_dec(&x->refcnt);
+}
+EXPORT_SYMBOL(__xfrm_state_put);
+
+void xfrm_state_put(struct xfrm_state *x)
+{
+	xfrm_state_cnt_track(x, 128);
+	if (refcount_dec_and_test(&x->refcnt))
+		__xfrm_state_destroy(x, false);
+}
+EXPORT_SYMBOL(xfrm_state_put);
+
+void xfrm_state_put_sync(struct xfrm_state *x)
+{
+	xfrm_state_cnt_track(x, 128);
+	if (refcount_dec_and_test(&x->refcnt))
+		__xfrm_state_destroy(x, true);
+}
+EXPORT_SYMBOL(xfrm_state_put_sync);
 
 static inline unsigned int xfrm_dst_hash(struct net *net,
 					 const xfrm_address_t *daddr,
