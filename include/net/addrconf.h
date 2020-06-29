@@ -343,6 +343,10 @@ static inline struct inet6_dev *__in6_dev_get_safely(const struct net_device *de
 		return NULL;
 }
 
+void in6_dev_hold(struct inet6_dev *idev);
+void in6_dev_put(struct inet6_dev *idev);
+void __in6_dev_put(struct inet6_dev *idev);
+
 /**
  * in6_dev_get - get inet6_dev pointer from netdevice
  * @dev: network device
@@ -358,7 +362,7 @@ static inline struct inet6_dev *in6_dev_get(const struct net_device *dev)
 	rcu_read_lock();
 	idev = rcu_dereference(dev->ip6_ptr);
 	if (idev)
-		refcount_inc(&idev->refcnt);
+		in6_dev_hold(idev);
 	rcu_read_unlock();
 	return idev;
 }
@@ -372,12 +376,6 @@ static inline struct neigh_parms *__in6_dev_nd_parms_get_rcu(const struct net_de
 
 void in6_dev_finish_destroy(struct inet6_dev *idev);
 
-static inline void in6_dev_put(struct inet6_dev *idev)
-{
-	if (refcount_dec_and_test(&idev->refcnt))
-		in6_dev_finish_destroy(idev);
-}
-
 static inline void in6_dev_put_clear(struct inet6_dev **pidev)
 {
 	struct inet6_dev *idev = *pidev;
@@ -386,16 +384,6 @@ static inline void in6_dev_put_clear(struct inet6_dev **pidev)
 		in6_dev_put(idev);
 		*pidev = NULL;
 	}
-}
-
-static inline void __in6_dev_put(struct inet6_dev *idev)
-{
-	refcount_dec(&idev->refcnt);
-}
-
-static inline void in6_dev_hold(struct inet6_dev *idev)
-{
-	refcount_inc(&idev->refcnt);
 }
 
 /* called with rcu_read_lock held */

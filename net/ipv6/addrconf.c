@@ -96,6 +96,39 @@
 #define IPV6_MAX_STRLEN \
 	sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255")
 
+static inline void in6_cnt_track(struct inet6_dev *idev, u8 type)
+{
+	struct net_device *dev = idev->dev;
+
+	if (!dev)
+		return;
+
+	if (obj_cnt_allowed(dev_net(dev), dev->ifindex, dev->name, NULL))
+		obj_cnt_track(dev_net(dev), __builtin_return_address(0), idev, type);
+}
+
+void in6_dev_hold(struct inet6_dev *idev)
+{
+	in6_cnt_track(idev, 16);
+	refcount_inc(&idev->refcnt);
+}
+EXPORT_SYMBOL(in6_dev_hold);
+
+void in6_dev_put(struct inet6_dev *idev)
+{
+	in6_cnt_track(idev, 32);
+	if (refcount_dec_and_test(&idev->refcnt))
+		in6_dev_finish_destroy(idev);
+}
+EXPORT_SYMBOL(in6_dev_put);
+
+void __in6_dev_put(struct inet6_dev *idev)
+{
+	in6_cnt_track(idev, 32);
+	refcount_dec(&idev->refcnt);
+}
+EXPORT_SYMBOL(__in6_dev_put);
+
 static inline u32 cstamp_delta(unsigned long cstamp)
 {
 	return (cstamp - INITIAL_JIFFIES) * 100UL / HZ;
