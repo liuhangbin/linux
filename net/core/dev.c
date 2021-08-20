@@ -287,10 +287,12 @@ static struct obj_cnt *obj_cnt_create(struct net *net, void *loc, void *obj, int
 	oc->cnt = 0;
 	oc->type = type;
 	hlist_add_head_rcu(&oc->hlist, obj_cnt_hash(net, loc));
-	printk("[OC_INFO] oc_cnt_create: loc: %px, obj: %px, type: %d, net: %px\n",
-	       loc, obj, type, net);
 
-	dump_stack();
+	if (net->core.sysctl_obj_cnt_dump) {
+		printk("[OC_INFO] oc_cnt_create: loc: %px, obj: %px, type: %d, net: %px\n",
+			loc, obj, type, net);
+		dump_stack();
+	}
 
 	return oc;
 }

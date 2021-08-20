@@ -14,6 +14,7 @@ struct netns_core {
 	char	sysctl_obj_cnt_name[16];
 	int	sysctl_obj_cnt_type;
 	void	*sysctl_obj_cnt_obj;
+	int	sysctl_obj_cnt_dump;
 
 #ifdef CONFIG_PROC_FS
 	int __percpu *sock_inuse;

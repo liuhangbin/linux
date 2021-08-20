@@ -363,6 +363,7 @@ static int __net_init net_defaults_init_net(struct net *net)
 	strcpy(net->core.sysctl_obj_cnt_name, "qr-");
 	net->core.sysctl_obj_cnt_type = 0xff;
 	net->core.sysctl_obj_cnt_obj = NULL;
+	net->core.sysctl_obj_cnt_dump = 0;
 	return 0;
 }
 
