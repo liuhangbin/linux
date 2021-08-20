@@ -238,6 +238,7 @@ static inline void rps_unlock(struct softnet_data *sd)
 
 struct obj_cnt {
 	struct hlist_node hlist;
+	struct list_head  list;
 	void *loc;	/* dump stack address */
 	void *obj;	/* the obj to track */
 	u64 cnt;	/* how many times it's been called */
@@ -268,11 +269,17 @@ static struct obj_cnt *obj_cnt_create(struct net *net, void *loc, void *obj, int
 {
 	struct obj_cnt *oc;
 
-	oc = kmalloc(sizeof(*oc), GFP_ATOMIC);
-	if (!oc) {
-		printk("[OC_ERROR] obj_cnt_create: loc: %px, obj: %px, type: %d, net: %px\n",
-		       loc, obj, type, net);
-		return NULL;
+	oc = list_first_entry_or_null(&net->obj_cnt_list, struct obj_cnt, list);
+	if (unlikely(!oc)) {
+		printk("[OC_WARN] obj_cnt_create: no more cached objs\n");
+		oc = kmalloc(sizeof(*oc), GFP_ATOMIC);
+		if (!oc) {
+			printk("[OC_ERROR] obj_cnt_create: loc: %px, obj: %px, type: %d, net: %px\n",
+					loc, obj, type, net);
+			return NULL;
+		}
+	} else {
+		list_del(&oc->list);
 	}
 
 	oc->loc = loc;
@@ -11525,9 +11532,36 @@ static struct hlist_head * __net_init netdev_create_hash(void)
 	return hash;
 }
 
+static void obj_cnt_free(struct net *net)
+{
+	struct hlist_head *head;
+	struct hlist_node *tmp;
+	struct obj_cnt *oc, *t;
+	int h;
+
+	spin_lock_bh(&net->obj_cnt_lock);
+        for (h = 0; h < NETDEV_HASHENTRIES; h++) {
+                head = &net->obj_cnt_head[h];
+                hlist_for_each_entry_safe(oc, tmp, head, hlist) {
+			hlist_del_rcu(&oc->hlist);
+			kfree(oc);
+		}
+        }
+	list_for_each_entry_safe(oc, t, &net->obj_cnt_list, list) {
+		list_del(&oc->list);
+		kfree(oc);
+	}
+	spin_unlock_bh(&net->obj_cnt_lock);
+
+	kfree(net->obj_cnt_head);
+}
+
 /* Initialize per network namespace state */
 static int __net_init netdev_init(struct net *net)
 {
+	struct obj_cnt *oc;
+	int i;
+
 	BUILD_BUG_ON(GRO_HASH_BUCKETS >
 		     8 * sizeof_field(struct napi_struct, gro_bitmask));
 
@@ -11542,17 +11576,30 @@ static int __net_init netdev_init(struct net *net)
 	if (net->dev_index_head == NULL)
 		goto err_idx;
 
+	INIT_LIST_HEAD(&net->obj_cnt_list);
+	spin_lock_init(&net->obj_cnt_lock);
+
 	net->obj_cnt_head = netdev_create_hash();
 	if (net->obj_cnt_head == NULL)
-		goto err_oc;
+		goto err_oc_hlist;
 
-	spin_lock_init(&net->obj_cnt_lock);
+#define OBJ_CNT_BUFS	256
+	for (i = 0; i < OBJ_CNT_BUFS; i++) {
+		oc = kzalloc(sizeof(*oc), GFP_ATOMIC);
+		if (!oc) {
+			printk("[OC_ERROR] obj_cnt_init: net: %px, num: %d\n", net, i);
+			goto err_oc_list;
+		}
+		list_add(&oc->list, &net->obj_cnt_list);
+	}
 
 	RAW_INIT_NOTIFIER_HEAD(&net->netdev_chain);
 
 	return 0;
 
-err_oc:
+err_oc_list:
+	obj_cnt_free(net);
+err_oc_hlist:
 	kfree(net->dev_index_head);
 err_idx:
 	kfree(net->dev_name_head);
@@ -11642,26 +11689,6 @@ define_netdev_printk_level(netdev_err, KERN_ERR);
 define_netdev_printk_level(netdev_warn, KERN_WARNING);
 define_netdev_printk_level(netdev_notice, KERN_NOTICE);
 define_netdev_printk_level(netdev_info, KERN_INFO);
-
-static void obj_cnt_free(struct net *net)
-{
-	struct hlist_head *head;
-	struct hlist_node *tmp;
-	struct obj_cnt *oc;
-	int h;
-
-	spin_lock_bh(&net->obj_cnt_lock);
-        for (h = 0; h < NETDEV_HASHENTRIES; h++) {
-                head = &net->obj_cnt_head[h];
-                hlist_for_each_entry_safe(oc, tmp, head, hlist) {
-			hlist_del_rcu(&oc->hlist);
-			kfree(oc);
-		}
-        }
-	spin_unlock_bh(&net->obj_cnt_lock);
-
-	kfree(net->obj_cnt_head);
-}
 
 static void __net_exit netdev_exit(struct net *net)
 {
