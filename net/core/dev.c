@@ -380,6 +380,38 @@ void obj_cnt_set(struct net *net, int index, char *name, void *obj)
 }
 EXPORT_SYMBOL(obj_cnt_set);
 
+static inline void dev_cnt_track(struct net_device *dev, u8 type)
+{
+	if (obj_cnt_allowed(dev_net(dev), dev->ifindex, dev->name, NULL))
+		obj_cnt_track(dev_net(dev), __builtin_return_address(0), dev, type);
+}
+
+void dev_put(struct net_device *dev)
+{
+	if (dev) {
+		dev_cnt_track(dev, 2);
+#ifdef CONFIG_PCPU_DEV_REFCNT
+		this_cpu_dec(*dev->pcpu_refcnt);
+#else
+		refcount_dec(&dev->dev_refcnt);
+#endif
+	}
+}
+EXPORT_SYMBOL(dev_put);
+
+void dev_hold(struct net_device *dev)
+{
+	if (dev) {
+		dev_cnt_track(dev, 1);
+#ifdef CONFIG_PCPU_DEV_REFCNT
+		this_cpu_inc(*dev->pcpu_refcnt);
+#else
+		refcount_inc(&dev->dev_refcnt);
+#endif
+	}
+}
+EXPORT_SYMBOL(dev_hold);
+
 static struct netdev_name_node *netdev_name_node_alloc(struct net_device *dev,
 						       const char *name)
 {
@@ -10687,6 +10719,11 @@ static void netdev_wait_allrefs(struct net_device *dev)
 			pr_emerg("unregister_netdevice: waiting for %s to become free. Usage count = %d\n",
 				 dev->name, refcnt);
 			warning_time = jiffies;
+
+			if (obj_cnt_allowed(dev_net(dev), dev->ifindex, dev->name, NULL)) {
+				obj_cnt_dump(dev_net(dev), dev, 1, "dev_hold");
+				obj_cnt_dump(dev_net(dev), dev, 2, "dev_put");
+			}
 		}
 	}
 }

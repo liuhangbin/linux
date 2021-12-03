@@ -4162,16 +4162,7 @@ void netdev_run_todo(void);
  *
  * Release reference to device to allow it to be freed.
  */
-static inline void dev_put(struct net_device *dev)
-{
-	if (dev) {
-#ifdef CONFIG_PCPU_DEV_REFCNT
-		this_cpu_dec(*dev->pcpu_refcnt);
-#else
-		refcount_dec(&dev->dev_refcnt);
-#endif
-	}
-}
+void dev_put(struct net_device *dev);
 
 /**
  *	dev_hold - get reference to device
@@ -4179,16 +4170,7 @@ static inline void dev_put(struct net_device *dev)
  *
  * Hold reference to device to keep it from being freed.
  */
-static inline void dev_hold(struct net_device *dev)
-{
-	if (dev) {
-#ifdef CONFIG_PCPU_DEV_REFCNT
-		this_cpu_inc(*dev->pcpu_refcnt);
-#else
-		refcount_inc(&dev->dev_refcnt);
-#endif
-	}
-}
+void dev_hold(struct net_device *dev);
 
 /* Carrier loss detection, dial on demand. The functions netif_carrier_on
  * and _off may be called from IRQ context, but it is caller
